@@ -194,7 +194,136 @@ def load_model(model_path: str, base_model_path: str = None):
     return model, tokenizer
 
 
-def test_inference(model, tokenizer, image_path: str, prompt: str = None):
+def try_parse_json_with_debug(text: str):
+    """尝试解析模型返回的文本，并输出调试信息"""
+    print("\n尝试解析 JSON:")
+
+    candidates = []
+    stripped = text.strip()
+    candidates.append(("trimmed_text", stripped))
+
+    if "```json" in stripped:
+        md_block = stripped.split("```json", 1)[1]
+        md_block = md_block.split("```", 1)[0].strip()
+        candidates.append(("markdown_json_block", md_block))
+    elif "```" in stripped:
+        md_block = stripped.split("```", 1)[1]
+        md_block = md_block.split("```", 1)[0].strip()
+        candidates.append(("markdown_block", md_block))
+
+    # 尝试从第一个 { 或 [ 开始截取
+    brace_positions = [pos for pos in (stripped.find('{'), stripped.find('[')) if pos != -1]
+    if brace_positions:
+        start = min(brace_positions)
+        candidates.append(("from_first_brace", stripped[start:].strip()))
+
+    seen = set()
+    for label, candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+
+        preview = candidate[:120].replace("\n", "\\n")
+        print(f"\n候选 `{label}` 前120字符: {preview}")
+        try:
+            parsed = json.loads(candidate)
+            print(f"✓ 成功解析候选 `{label}`")
+            return parsed
+        except json.JSONDecodeError as e:
+            print(f"✗ 候选 `{label}` 解析失败: {e}")
+
+    print("✗ 所有候选解析失败")
+    print("\n提供更多调试信息：")
+    print(f"  - 文本长度: {len(stripped)}")
+    print(f"  - 首字符 (repr): {repr(stripped[0]) if stripped else '空文本'}")
+    return None
+
+
+def diff_json(pred, label, path=""):
+    """递归比较两个 JSON 对象"""
+    diffs = []
+
+    if isinstance(pred, dict) and isinstance(label, dict):
+        keys = set(pred.keys()) | set(label.keys())
+        for key in keys:
+            new_path = f"{path}.{key}" if path else key
+            if key not in pred:
+                diffs.append(f"{new_path}: 预测缺失，标注值为 {label[key]!r}")
+            elif key not in label:
+                diffs.append(f"{new_path}: 标注缺失，预测值为 {pred[key]!r}")
+            else:
+                diffs.extend(diff_json(pred[key], label[key], new_path))
+    elif isinstance(pred, list) and isinstance(label, list):
+        max_len = max(len(pred), len(label))
+        for i in range(max_len):
+            new_path = f"{path}[{i}]"
+            if i >= len(pred):
+                diffs.append(f"{new_path}: 预测缺失，标注值为 {label[i]!r}")
+            elif i >= len(label):
+                diffs.append(f"{new_path}: 标注缺失，预测值为 {pred[i]!r}")
+            else:
+                diffs.extend(diff_json(pred[i], label[i], new_path))
+    else:
+        if pred != label:
+            diffs.append(f"{path}: 预测值 {pred!r} != 标注值 {label!r}")
+
+    return diffs
+
+
+def load_label_info(label_file: str, image_path: str):
+    """从标注文件中读取指定图片的标注"""
+    if not os.path.exists(label_file):
+        print(f"⚠️  警告: 标注文件不存在: {label_file}")
+        return None
+
+    try:
+        with open(label_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"⚠️  警告: 无法读取标注文件: {e}")
+        return None
+
+    target_abs = os.path.abspath(os.path.normpath(image_path))
+    if isinstance(data, dict):
+        if isinstance(data.get('results'), list):
+            data_iter = data['results']
+        else:
+            data_iter = data.values()
+    else:
+        data_iter = data
+
+    for item in data_iter:
+        sample_path = item.get('image_path')
+        if not sample_path:
+            continue
+        sample_abs = os.path.abspath(os.path.normpath(sample_path))
+        if sample_abs == target_abs:
+            label = item.get('result')
+            if label is None:
+                continue
+            if isinstance(label, dict):
+                parsed = label
+                raw_text = json.dumps(label, ensure_ascii=False, indent=2)
+            else:
+                raw_text = str(label)
+                try:
+                    parsed = json.loads(raw_text)
+                except Exception:
+                    parsed = None
+            print(f"\n✓ 找到标注信息 (文件: {label_file})")
+            return {
+                "raw_text": raw_text,
+                "parsed": parsed,
+                "task_type": item.get('task_type'),
+                "prompt": item.get('prompt'),
+                "source_file": label_file,
+            }
+
+    print(f"⚠️  警告: 标注文件中未找到图片 {image_path}")
+    return None
+
+
+def test_inference(model, tokenizer, image_path: str, prompt: str = None, label_info: dict = None):
     """测试模型推理"""
     print_section("步骤 4: 测试推理")
 
@@ -327,27 +456,33 @@ def test_inference(model, tokenizer, image_path: str, prompt: str = None):
         print(result)
         print("-" * 80)
 
-        # 尝试解析 JSON
-        print("\n尝试解析 JSON:")
-        json_text = result.strip()
+        if label_info:
+            print("\n标注结果:")
+            if label_info.get("task_type"):
+                print(f"  任务类型: {label_info['task_type']}")
+            if label_info.get("source_file"):
+                print(f"  来源文件: {label_info['source_file']}")
+            print("-" * 80)
+            print(label_info["raw_text"])
+            print("-" * 80)
 
-        # 去除 markdown 标记
-        if json_text.startswith("```json"):
-            json_text = json_text.split("```json")[1].split("```")[0].strip()
-        elif json_text.startswith("```"):
-            json_text = json_text.split("```")[1].split("```")[0].strip()
-
-        try:
-            result_json = json.loads(json_text)
-            print("✓ JSON 解析成功")
+        result_json = try_parse_json_with_debug(result)
+        if result_json is not None:
             print("\n解析后的 JSON:")
             print(json.dumps(result_json, ensure_ascii=False, indent=2))
-        except json.JSONDecodeError as e:
-            print(f"✗ JSON 解析失败: {e}")
-            print(f"\n尝试解析的文本:")
-            print("-" * 80)
-            print(json_text)
-            print("-" * 80)
+
+            if label_info and label_info.get("parsed") is not None:
+                print("\n比较预测结果与标注:")
+                diffs = diff_json(result_json, label_info["parsed"])
+                if not diffs:
+                    print("✓ 预测结果与标注完全一致")
+                else:
+                    print(f"✗ 存在差异，共 {len(diffs)} 处，前10处如下：")
+                    for diff in diffs[:10]:
+                        print(f"  - {diff}")
+        else:
+            if label_info and label_info.get("parsed") is not None:
+                print("\n⚠️  无法解析模型输出，因此无法与标注 JSON 对比")
     else:
         print(f"结果: {result}")
 
@@ -387,6 +522,8 @@ def main():
                         help='测试图片路径')
     parser.add_argument('--prompt', type=str, default=None,
                         help='自定义 prompt（默认使用 Free OCR）')
+    parser.add_argument('--label_file', type=str, default=None,
+                        help='包含标注数据的 JSON 文件，用于对比模型输出')
 
     args = parser.parse_args()
 
@@ -405,8 +542,12 @@ def main():
         # 加载模型
         model, tokenizer = load_model(args.model_path, args.base_model_path)
 
+        label_info = None
+        if args.label_file:
+            label_info = load_label_info(args.label_file, args.image_path)
+
         # 测试推理
-        result = test_inference(model, tokenizer, args.image_path, args.prompt)
+        result = test_inference(model, tokenizer, args.image_path, args.prompt, label_info)
 
         # 总结
         print_section("总结")
