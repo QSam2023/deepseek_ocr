@@ -123,6 +123,11 @@ def load_local_model(model_path: str, base_model_path: str = None) -> Tuple:
             use_gradient_checkpointing="unsloth",
         )
 
+    # 启用推理模式（关键步骤！）
+    print("设置模型为推理模式...")
+    FastVisionModel.for_inference(model)
+    print("✓ 推理模式已启用")
+
     print("✓ 模型加载完成")
     return model, tokenizer
 
