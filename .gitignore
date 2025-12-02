@@ -82,6 +82,8 @@ temp/
 # *.jpeg
 # *.png
 
+raw_data/
+
 # Claude doc
 IMPROVEMENTS.md
 UPDATE_NOTES.md
@@ -90,3 +92,5 @@ UPDATE_NOTES.md
 deepseek_ocr/
 cloud_result/
 unsloth_*.py
+DeepSeek-OCR/
+unsloth_compiled_cache/
