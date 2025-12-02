@@ -246,9 +246,15 @@ def test_inference(model, tokenizer, image_path: str, prompt: str = None):
 
     result = None
 
+    # 创建临时输出目录（即使不保存文件也需要）
+    import tempfile
+    import shutil
+    temp_output_dir = tempfile.mkdtemp(prefix='deepseek_ocr_debug_')
+    print(f"临时输出目录: {temp_output_dir}")
+
     try:
         # 调用 infer() 方法，使用 eval_mode=True 直接获取返回值
-        print("调用 model.infer()...")
+        print("\n调用 model.infer()...")
         print(f"  图片: {image_path}")
         print(f"  参数: eval_mode=True, save_results=False")
 
@@ -256,7 +262,7 @@ def test_inference(model, tokenizer, image_path: str, prompt: str = None):
             tokenizer,
             prompt=prompt,
             image_file=image_path,
-            output_path=None,
+            output_path=temp_output_dir,  # 必须提供
             base_size=1024,
             image_size=640,
             crop_mode=True,
@@ -293,6 +299,11 @@ def test_inference(model, tokenizer, image_path: str, prompt: str = None):
         import traceback
         traceback.print_exc()
         return None
+    finally:
+        # 清理临时目录
+        if os.path.exists(temp_output_dir):
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
+            print(f"✓ 已清理临时目录")
 
     # 检查结果
     print_section("步骤 5: 检查结果")

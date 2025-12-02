@@ -152,18 +152,29 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer) -> Dict:
 
     # 使用 infer 方法进行推理
     # 设置 eval_mode=True 直接获取返回值
-    result_text = model.infer(
-        tokenizer,
-        prompt=prompt,
-        image_file=img_path,
-        output_path=None,  # 不需要输出目录
-        base_size=1024,
-        image_size=640,
-        crop_mode=True,
-        save_results=False,  # 不保存文件
-        test_compress=False,
-        eval_mode=True  # 关键参数：返回结果而不是保存到文件
-    )
+    # 注意：即使 save_results=False，也需要提供 output_path
+    import tempfile
+    import shutil
+
+    temp_output_dir = tempfile.mkdtemp(prefix='deepseek_ocr_')
+
+    try:
+        result_text = model.infer(
+            tokenizer,
+            prompt=prompt,
+            image_file=img_path,
+            output_path=temp_output_dir,  # 必须提供，即使不保存
+            base_size=1024,
+            image_size=640,
+            crop_mode=True,
+            save_results=False,  # 不保存文件
+            test_compress=False,
+            eval_mode=True  # 关键参数：返回结果
+        )
+    finally:
+        # 清理临时目录
+        if os.path.exists(temp_output_dir):
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
 
     # 检查返回结果
     if result_text is None:
