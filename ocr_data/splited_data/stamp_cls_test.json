@@ -1,0 +1,50 @@
+[
+  {
+    "image_path": "ocr_data/stamp_data/stamp_01/stamp_0001.png",
+    "task_type": "stamp_cls",
+    "prompt": "帮我看一下图片中是否有盖章、公章信息，[1]如果有；麻烦帮我提取出来，并在后面标注“(*公章信息*)”；[2]如果没有，麻烦输出“无公章信息”;[3]严格按照JSON格式输出",
+    "result": {
+      "公章信息": "无公章信息"
+    }
+  },
+  {
+    "image_path": "ocr_data/stamp_data/stamp_01/stamp_0011.png",
+    "task_type": "stamp_cls",
+    "prompt": "帮我看一下图片中是否有盖章、公章信息，[1]如果有；麻烦帮我提取出来，并在后面标注“(*公章信息*)”；[2]如果没有，麻烦输出“无公章信息”;[3]严格按照JSON格式输出",
+    "result": {
+      "公章信息": "无公章信息"
+    }
+  },
+  {
+    "image_path": "ocr_data/stamp_data/stamp_01/stamp_0022.png",
+    "task_type": "stamp_cls",
+    "prompt": "帮我看一下图片中是否有盖章、公章信息，[1]如果有；麻烦帮我提取出来，并在后面标注“(*公章信息*)”；[2]如果没有，麻烦输出“无公章信息”;[3]严格按照JSON格式输出",
+    "result": {
+      "公章信息": "无公章信息"
+    }
+  },
+  {
+    "image_path": "ocr_data/stamp_data/stamp_01/stamp_0023.png",
+    "task_type": "stamp_cls",
+    "prompt": "帮我看一下图片中是否有盖章、公章信息，[1]如果有；麻烦帮我提取出来，并在后面标注“(*公章信息*)”；[2]如果没有，麻烦输出“无公章信息”;[3]严格按照JSON格式输出",
+    "result": {
+      "公章信息": "无公章信息"
+    }
+  },
+  {
+    "image_path": "ocr_data/stamp_data/stamp_01/stamp_0063.png",
+    "task_type": "stamp_cls",
+    "prompt": "帮我看一下图片中是否有盖章、公章信息，[1]如果有；麻烦帮我提取出来，并在后面标注“(*公章信息*)”；[2]如果没有，麻烦输出“无公章信息”;[3]严格按照JSON格式输出",
+    "result": {
+      "公章信息": "无公章信息"
+    }
+  },
+  {
+    "image_path": "ocr_data/stamp_data/stamp_01/stamp_0073.png",
+    "task_type": "stamp_cls",
+    "prompt": "帮我看一下图片中是否有盖章、公章信息，[1]如果有；麻烦帮我提取出来，并在后面标注“(*公章信息*)”；[2]如果没有，麻烦输出“无公章信息”;[3]严格按照JSON格式输出",
+    "result": {
+      "公章信息": "无公章信息"
+    }
+  }
+]

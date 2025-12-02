@@ -1,0 +1,145 @@
+# DeepSeek OCR 训练配置文件
+
+# 数据配置
+data:
+  # 数据根目录
+  data_root: "ocr_data"
+
+  # 划分后的数据目录（如果使用现有数据）
+  split_data_dir: "ocr_data/splited_data"
+
+  # 是否使用已存在的划分数据（True: 使用已有数据，False: 重新划分）
+  use_existing_split: false
+
+  # 数据类型选择: 'all', 'table', 'stamp'
+  # all: 训练所有任务 (table_ocr + stamp_ocr + stamp_cls)
+  # table: 只训练 table_ocr
+  # stamp: 只训练 stamp_ocr + stamp_cls
+  data_type: "all"
+
+  # 数据划分参数（当 use_existing_split=false 时生效）
+  train_ratio: 0.8
+  split_seed: 42
+
+# 模型配置
+model:
+  # 本地模型路径
+  model_path: "./deepseek_ocr"
+
+  # 是否使用 4bit 量化
+  load_in_4bit: false
+
+  # 是否使用梯度检查点（节省显存）
+  # 可选值: false, true, "unsloth"
+  use_gradient_checkpointing: "unsloth"
+
+  # 是否强制编译（unsloth 加速）
+  unsloth_force_compile: true
+
+  # LoRA 配置
+  lora:
+    # LoRA rank（越大精度越高，但可能过拟合）
+    r: 16
+
+    # LoRA alpha（推荐 alpha == r）
+    lora_alpha: 16
+
+    # LoRA dropout
+    lora_dropout: 0
+
+    # bias 类型
+    bias: "none"
+
+    # 随机种子
+    random_state: 3407
+
+    # 是否使用 rsLoRA
+    use_rslora: false
+
+    # 目标模块
+    target_modules:
+      - "q_proj"
+      - "k_proj"
+      - "v_proj"
+      - "o_proj"
+      - "gate_proj"
+      - "up_proj"
+      - "down_proj"
+
+# 数据处理配置
+data_processing:
+  # 图像尺寸（用于图像 patch）
+  image_size: 640
+
+  # 基础尺寸（用于全局视图）
+  base_size: 1024
+
+  # 是否使用动态裁剪（针对大图）
+  crop_mode: true
+
+  # 是否只训练回复部分（mask 用户 prompt）
+  train_on_responses_only: true
+
+# 训练配置
+training:
+  # 输出目录
+  output_dir: "outputs"
+
+  # 每个设备的 batch size
+  per_device_train_batch_size: 2
+
+  # 梯度累积步数
+  gradient_accumulation_steps: 4
+
+  # 预热步数
+  warmup_steps: 5
+
+  # 最大训练步数（如果设置了 num_train_epochs，此项会被忽略）
+  max_steps: 60
+
+  # 训练轮数（如果设置此项，max_steps 会被忽略）
+  # num_train_epochs: 1
+
+  # 学习率
+  learning_rate: 2e-4
+
+  # 日志记录步数
+  logging_steps: 1
+
+  # 优化器
+  optim: "adamw_8bit"
+
+  # 权重衰减
+  weight_decay: 0.001
+
+  # 学习率调度器类型
+  lr_scheduler_type: "linear"
+
+  # 随机种子
+  seed: 3407
+
+  # 数据加载器工作线程数
+  dataloader_num_workers: 2
+
+  # 是否保存检查点
+  save_strategy: "steps"
+
+  # 保存检查点的步数
+  save_steps: 100
+
+  # 最多保存几个检查点
+  save_total_limit: 2
+
+  # 报告工具（none, wandb, tensorboard 等）
+  report_to: "none"
+
+# 模型保存配置
+saving:
+  # LoRA 模型保存路径
+  lora_model_path: "lora_model"
+
+  # 是否保存合并后的完整模型
+  save_merged_model: false
+
+  # 合并后的模型保存路径
+  merged_model_path: "merged_model"
