@@ -187,12 +187,12 @@ def setup_model_and_tokenizer(config: Dict[str, Any]):
     model = FastVisionModel.get_peft_model(
         model,
         target_modules=lora_config['target_modules'],
-        r=lora_config['r'],
-        lora_alpha=lora_config['lora_alpha'],
-        lora_dropout=lora_config['lora_dropout'],
-        bias=lora_config['bias'],
-        random_state=lora_config['random_state'],
-        use_rslora=lora_config['use_rslora'],
+        r=int(lora_config['r']),
+        lora_alpha=int(lora_config['lora_alpha']),
+        lora_dropout=float(lora_config['lora_dropout']),
+        bias=str(lora_config['bias']),
+        random_state=int(lora_config['random_state']),
+        use_rslora=bool(lora_config['use_rslora']),
     )
 
     # 启用训练模式
@@ -215,10 +215,10 @@ def create_data_collator(tokenizer, model, config: Dict[str, Any]):
     data_collator = DeepSeekOCRDataCollator(
         tokenizer=tokenizer,
         model=model,
-        image_size=data_proc_config['image_size'],
-        base_size=data_proc_config['base_size'],
-        crop_mode=data_proc_config['crop_mode'],
-        train_on_responses_only=data_proc_config['train_on_responses_only'],
+        image_size=int(data_proc_config['image_size']),
+        base_size=int(data_proc_config['base_size']),
+        crop_mode=bool(data_proc_config['crop_mode']),
+        train_on_responses_only=bool(data_proc_config['train_on_responses_only']),
     )
 
     return data_collator
@@ -235,22 +235,23 @@ def create_training_args(config: Dict[str, Any]) -> TrainingArguments:
     print(f"  learning_rate: {train_config['learning_rate']}")
 
     # 根据配置决定使用 max_steps 还是 num_train_epochs
+    # 确保所有数值参数都是正确的类型
     training_args_dict = {
-        "output_dir": train_config['output_dir'],
-        "per_device_train_batch_size": train_config['per_device_train_batch_size'],
-        "gradient_accumulation_steps": train_config['gradient_accumulation_steps'],
-        "warmup_steps": train_config['warmup_steps'],
-        "learning_rate": train_config['learning_rate'],
-        "logging_steps": train_config['logging_steps'],
-        "optim": train_config['optim'],
-        "weight_decay": train_config['weight_decay'],
-        "lr_scheduler_type": train_config['lr_scheduler_type'],
-        "seed": train_config['seed'],
-        "dataloader_num_workers": train_config['dataloader_num_workers'],
-        "save_strategy": train_config['save_strategy'],
-        "save_steps": train_config['save_steps'],
-        "save_total_limit": train_config['save_total_limit'],
-        "report_to": train_config['report_to'],
+        "output_dir": str(train_config['output_dir']),
+        "per_device_train_batch_size": int(train_config['per_device_train_batch_size']),
+        "gradient_accumulation_steps": int(train_config['gradient_accumulation_steps']),
+        "warmup_steps": int(train_config['warmup_steps']),
+        "learning_rate": float(train_config['learning_rate']),
+        "logging_steps": int(train_config['logging_steps']),
+        "optim": str(train_config['optim']),
+        "weight_decay": float(train_config['weight_decay']),
+        "lr_scheduler_type": str(train_config['lr_scheduler_type']),
+        "seed": int(train_config['seed']),
+        "dataloader_num_workers": int(train_config['dataloader_num_workers']),
+        "save_strategy": str(train_config['save_strategy']),
+        "save_steps": int(train_config['save_steps']),
+        "save_total_limit": int(train_config['save_total_limit']),
+        "report_to": str(train_config['report_to']),
         "fp16": not is_bf16_supported(),
         "bf16": is_bf16_supported(),
         "remove_unused_columns": False,  # 视觉微调必须设置
@@ -258,10 +259,10 @@ def create_training_args(config: Dict[str, Any]) -> TrainingArguments:
 
     # 添加 max_steps 或 num_train_epochs
     if 'num_train_epochs' in train_config and train_config['num_train_epochs'] is not None:
-        training_args_dict['num_train_epochs'] = train_config['num_train_epochs']
+        training_args_dict['num_train_epochs'] = int(train_config['num_train_epochs'])
         print(f"  num_train_epochs: {train_config['num_train_epochs']}")
     else:
-        training_args_dict['max_steps'] = train_config['max_steps']
+        training_args_dict['max_steps'] = int(train_config['max_steps'])
         print(f"  max_steps: {train_config['max_steps']}")
 
     return TrainingArguments(**training_args_dict)
