@@ -218,59 +218,78 @@ def test_inference(model, tokenizer, image_path: str, prompt: str = None):
 
     print(f"\nPrompt: {prompt}")
 
-    # 创建临时输出目录
-    temp_output_dir = os.path.join(os.path.dirname(image_path), '.temp_inference_debug')
-    os.makedirs(temp_output_dir, exist_ok=True)
-    print(f"临时输出目录: {temp_output_dir}")
-
-    # 检查模型是否有 infer 方法
-    print(f"\n检查模型方法:")
+    # 详细检查模型结构
+    print(f"\n详细检查模型结构:")
+    print(f"  模型类型: {type(model)}")
     print(f"  hasattr(model, 'infer'): {hasattr(model, 'infer')}")
 
     if hasattr(model, 'base_model'):
+        print(f"  有 base_model 属性")
+        print(f"  base_model 类型: {type(model.base_model)}")
         print(f"  hasattr(model.base_model, 'infer'): {hasattr(model.base_model, 'infer')}")
+
+        if hasattr(model.base_model, 'model'):
+            print(f"  有 base_model.model 属性")
+            print(f"  base_model.model 类型: {type(model.base_model.model)}")
+            print(f"  hasattr(model.base_model.model, 'infer'): {hasattr(model.base_model.model, 'infer')}")
+
+    # 列出模型的所有方法
+    print(f"\n模型的主要方法:")
+    for attr in dir(model):
+        if not attr.startswith('_') and callable(getattr(model, attr, None)):
+            if 'infer' in attr.lower() or 'generate' in attr.lower() or 'forward' in attr.lower():
+                print(f"  - {attr}")
 
     # 尝试推理
     print("\n开始推理...")
     print("-" * 80)
 
+    result = None
+
     try:
-        # 尝试直接调用
-        if hasattr(model, 'infer'):
-            print("使用 model.infer() 方法")
-            result = model.infer(
-                tokenizer,
-                prompt=prompt,
-                image_file=image_path,
-                output_path=temp_output_dir,
-                base_size=1024,
-                image_size=640,
-                crop_mode=True,
-                save_results=False,
-                test_compress=False
-            )
-        elif hasattr(model, 'base_model') and hasattr(model.base_model, 'infer'):
-            print("使用 model.base_model.infer() 方法")
-            result = model.base_model.infer(
-                tokenizer,
-                prompt=prompt,
-                image_file=image_path,
-                output_path=temp_output_dir,
-                base_size=1024,
-                image_size=640,
-                crop_mode=True,
-                save_results=False,
-                test_compress=False
-            )
-        else:
-            raise AttributeError("模型没有 infer() 方法")
+        # 调用 infer() 方法，使用 eval_mode=True 直接获取返回值
+        print("调用 model.infer()...")
+        print(f"  图片: {image_path}")
+        print(f"  参数: eval_mode=True, save_results=False")
+
+        result = model.infer(
+            tokenizer,
+            prompt=prompt,
+            image_file=image_path,
+            output_path=None,
+            base_size=1024,
+            image_size=640,
+            crop_mode=True,
+            save_results=False,
+            test_compress=False,
+            eval_mode=True  # 关键：直接返回结果
+        )
+        print("✓ infer() 调用完成")
+
+        # 检查返回值
+        print("\n检查返回值...")
+        print(f"  返回值类型: {type(result)}")
+        print(f"  是否为 None: {result is None}")
+
+        if result is not None:
+            if isinstance(result, str):
+                print(f"  返回值长度: {len(result)} 字符")
+            elif isinstance(result, list):
+                print(f"  返回值是列表，长度: {len(result)}")
+                if result:
+                    result = result[0]  # 取第一个元素
+                    print(f"  取第一个元素: {len(result)} 字符")
 
         print("-" * 80)
-        print("✓ 推理完成")
+
+        if result and str(result).strip():
+            print(f"✓ 推理完成，返回 {len(str(result))} 字符")
+        else:
+            print("✗ 返回了空结果或 None")
 
     except Exception as e:
         print("-" * 80)
-        print(f"✗ 推理失败: {e}")
+        print(f"✗ 推理过程出错: {e}")
         import traceback
         traceback.print_exc()
         return None

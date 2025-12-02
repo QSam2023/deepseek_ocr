@@ -150,26 +150,27 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer) -> Dict:
     # 构建 prompt（包含图像标记和任务指令）
     prompt = f"<image>\n{task_config['system_instruction']}\n\n{task_config['prompt']}"
 
-    # 创建临时输出目录（即使不保存结果也需要提供有效路径）
-    temp_output_dir = os.path.join(os.path.dirname(img_path), '.temp_inference')
-    os.makedirs(temp_output_dir, exist_ok=True)
-
-    # 调用模型推理
+    # 使用 infer 方法进行推理
+    # 设置 eval_mode=True 直接获取返回值
     result_text = model.infer(
         tokenizer,
         prompt=prompt,
         image_file=img_path,
-        output_path=temp_output_dir,  # 提供有效路径，但不保存结果
+        output_path=None,  # 不需要输出目录
         base_size=1024,
         image_size=640,
         crop_mode=True,
-        save_results=False,
-        test_compress=False
+        save_results=False,  # 不保存文件
+        test_compress=False,
+        eval_mode=True  # 关键参数：返回结果而不是保存到文件
     )
 
     # 检查返回结果
     if result_text is None:
         raise ValueError(f"模型推理返回 None，图片: {img_path}")
+
+    if not result_text or result_text.strip() == "":
+        raise ValueError(f"模型推理返回空结果，图片: {img_path}")
 
     # 解析JSON
     json_text = result_text.strip()
