@@ -14,7 +14,7 @@ if [ $# -eq 0 ]; then
     echo ""
     echo "示例:"
     echo "  ./test_single_image.sh ocr_data/stamp_data/stamp_01/stamp_0001.png"
-    echo "  ./test_single_image.sh test.jpg ./lora_model"
+    echo "  ./test_single_image.sh ocr_data/stamp_data/stamp_01/stamp_0001.png ./lora_model"
     echo ""
     echo "可用的测试图片:"
     echo "  - ocr_data/stamp_data/stamp_01/stamp_0001.png"
