@@ -91,7 +91,7 @@ def load_local_model(model_path: str, base_model_path: str = None) -> Tuple:
     if is_lora_adapter:
         # 先加载基础模型
         print(f"步骤 1/2: 加载基础模型 {base_model_path}")
-        model, tokenizer = FastVisionModel.from_pretrained(
+        base_model, tokenizer = FastVisionModel.from_pretrained(
             base_model_path,
             load_in_4bit=False,
             auto_model=AutoModel,
@@ -103,11 +103,11 @@ def load_local_model(model_path: str, base_model_path: str = None) -> Tuple:
         # 加载 LoRA adapter
         print(f"步骤 2/2: 加载 LoRA adapter {model_path}")
         from peft import PeftModel
-        model = PeftModel.from_pretrained(model, model_path)
+        model = PeftModel.from_pretrained(base_model, model_path)
 
-        # 合并 adapter 以加速推理
-        print("合并 LoRA adapter 以加速推理...")
-        model = model.merge_and_unload()
+        # 注意：不合并 adapter，保持 infer() 方法可用
+        # 直接使用 PeftModel 进行推理
+        print("✓ LoRA adapter 已加载（保持 adapter 分离以使用 infer 方法）")
 
     else:
         # 直接加载完整模型
@@ -161,6 +161,10 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer) -> Dict:
         save_results=False,
         test_compress=False
     )
+
+    # 检查返回结果
+    if result_text is None:
+        raise ValueError(f"模型推理返回 None，图片: {img_path}")
 
     # 解析JSON
     json_text = result_text.strip()
