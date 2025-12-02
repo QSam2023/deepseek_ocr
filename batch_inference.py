@@ -49,12 +49,13 @@ TASK_CONFIGS = {
 }
 
 
-def load_local_model(model_path: str) -> Tuple:
+def load_local_model(model_path: str, base_model_path: str = None) -> Tuple:
     """
     加载本地 Unsloth DeepSeek-OCR 模型
 
     Args:
-        model_path: 模型路径
+        model_path: 模型路径（可以是完整模型或 LoRA adapter）
+        base_model_path: 基础模型路径（当 model_path 是 LoRA adapter 时需要）
 
     Returns:
         (model, tokenizer) tuple
@@ -65,17 +66,62 @@ def load_local_model(model_path: str) -> Tuple:
     # Suppress warnings
     os.environ["UNSLOTH_WARN_UNINITIALIZED"] = '0'
 
-    print(f"\n加载本地模型: {model_path}")
-    print("这可能需要一些时间...")
+    # 检查是否是 LoRA adapter 目录
+    is_lora_adapter = False
+    if os.path.exists(model_path):
+        adapter_config_path = os.path.join(model_path, "adapter_config.json")
+        config_path = os.path.join(model_path, "config.json")
 
-    model, tokenizer = FastVisionModel.from_pretrained(
-        model_path,
-        load_in_4bit=False,  # Use False for 16bit LoRA
-        auto_model=AutoModel,
-        trust_remote_code=True,
-        unsloth_force_compile=True,
-        use_gradient_checkpointing="unsloth",
-    )
+        # 如果有 adapter_config.json 但没有 config.json，说明是 LoRA adapter
+        if os.path.exists(adapter_config_path) and not os.path.exists(config_path):
+            is_lora_adapter = True
+            print(f"\n检测到 LoRA adapter: {model_path}")
+
+            # 如果没有提供 base_model_path，尝试使用默认路径
+            if base_model_path is None:
+                base_model_path = "./deepseek_ocr"
+                print(f"使用默认基础模型路径: {base_model_path}")
+
+            if not os.path.exists(base_model_path):
+                raise ValueError(
+                    f"LoRA adapter 需要基础模型，但基础模型路径不存在: {base_model_path}\n"
+                    f"请使用 --base_model_path 参数指定基础模型路径，或确保 ./deepseek_ocr 存在"
+                )
+
+    if is_lora_adapter:
+        # 先加载基础模型
+        print(f"步骤 1/2: 加载基础模型 {base_model_path}")
+        model, tokenizer = FastVisionModel.from_pretrained(
+            base_model_path,
+            load_in_4bit=False,
+            auto_model=AutoModel,
+            trust_remote_code=True,
+            unsloth_force_compile=True,
+            use_gradient_checkpointing="unsloth",
+        )
+
+        # 加载 LoRA adapter
+        print(f"步骤 2/2: 加载 LoRA adapter {model_path}")
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, model_path)
+
+        # 合并 adapter 以加速推理
+        print("合并 LoRA adapter 以加速推理...")
+        model = model.merge_and_unload()
+
+    else:
+        # 直接加载完整模型
+        print(f"\n加载模型: {model_path}")
+        print("这可能需要一些时间...")
+
+        model, tokenizer = FastVisionModel.from_pretrained(
+            model_path,
+            load_in_4bit=False,
+            auto_model=AutoModel,
+            trust_remote_code=True,
+            unsloth_force_compile=True,
+            use_gradient_checkpointing="unsloth",
+        )
 
     print("✓ 模型加载完成")
     return model, tokenizer
@@ -204,7 +250,8 @@ def call_api(img_path: str, task_type: str, client) -> Dict:
 
 def batch_inference(task_type: str, split_data_dir: str, output_dir: str,
                    resume: bool = True, inference_mode: str = 'cloud',
-                   model_path: Optional[str] = None, local_model_cache: Optional[Tuple] = None):
+                   model_path: Optional[str] = None, base_model_path: Optional[str] = None,
+                   local_model_cache: Optional[Tuple] = None):
     """
     对特定任务类型的测试集进行批量推理
 
@@ -215,6 +262,7 @@ def batch_inference(task_type: str, split_data_dir: str, output_dir: str,
         resume: 是否跳过已处理的图片（断点续传）
         inference_mode: 推理模式 ('cloud' 或 'local')
         model_path: 本地模型路径（仅 local 模式需要）
+        base_model_path: 基础模型路径（当 model_path 是 LoRA adapter 时需要）
         local_model_cache: 已加载的本地模型缓存 (model, tokenizer)
 
     Returns:
@@ -254,7 +302,7 @@ def batch_inference(task_type: str, split_data_dir: str, output_dir: str,
         else:
             if not model_path:
                 raise ValueError("Local mode requires --model_path argument")
-            model, tokenizer = load_local_model(model_path)
+            model, tokenizer = load_local_model(model_path, base_model_path)
             local_model_cache = (model, tokenizer)
         client = None
 
@@ -344,11 +392,17 @@ def main():
   # 使用Cloud API进行推理 (默认)
   python batch_inference.py --data_type all
 
-  # 使用本地 Unsloth 模型进行推理
+  # 使用本地完整模型进行推理
   python batch_inference.py --data_type all --inference_mode local --model_path ./deepseek_ocr
 
+  # 使用 LoRA adapter 进行推理（自动检测并加载基础模型）
+  python batch_inference.py --data_type all --inference_mode local --model_path ./lora_model
+
+  # 使用 LoRA adapter 并手动指定基础模型
+  python batch_inference.py --data_type all --inference_mode local --model_path ./lora_model --base_model_path ./deepseek_ocr
+
   # 只对table_ocr进行推理
-  python batch_inference.py --data_type table --inference_mode local --model_path ./deepseek_ocr
+  python batch_inference.py --data_type table --inference_mode local --model_path ./lora_model
 
   # 从头开始（不跳过已处理的图片）
   python batch_inference.py --data_type all --no-resume
@@ -395,6 +449,12 @@ def main():
         type=str,
         default='./deepseek_ocr',
         help='本地模型路径 (仅在local模式下使用, 默认: ./deepseek_ocr)'
+    )
+    parser.add_argument(
+        '--base_model_path',
+        type=str,
+        default=None,
+        help='基础模型路径 (当 model_path 是 LoRA adapter 时需要, 默认: ./deepseek_ocr)'
     )
     parser.add_argument(
         '--no-resume',
@@ -466,6 +526,7 @@ def main():
                 resume=resume,
                 inference_mode=args.inference_mode,
                 model_path=args.model_path if args.inference_mode == 'local' else None,
+                base_model_path=args.base_model_path if args.inference_mode == 'local' else None,
                 local_model_cache=local_model_cache
             )
         except Exception as e:
