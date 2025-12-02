@@ -99,12 +99,16 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer) -> Dict:
     # 构建 prompt（包含图像标记和任务指令）
     prompt = f"<image>\n{task_config['system_instruction']}\n\n{task_config['prompt']}"
 
+    # 创建临时输出目录（即使不保存结果也需要提供有效路径）
+    temp_output_dir = os.path.join(os.path.dirname(img_path), '.temp_inference')
+    os.makedirs(temp_output_dir, exist_ok=True)
+
     # 调用模型推理
     result_text = model.infer(
         tokenizer,
         prompt=prompt,
         image_file=img_path,
-        output_path=None,  # 不保存中间结果
+        output_path=temp_output_dir,  # 提供有效路径，但不保存结果
         base_size=1024,
         image_size=640,
         crop_mode=True,
