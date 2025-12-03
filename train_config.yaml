@@ -69,10 +69,10 @@ model:
 # 数据处理配置
 data_processing:
   # 图像尺寸（用于图像 patch）
-  image_size: 640
+  image_size: 512 #640
 
   # 基础尺寸（用于全局视图）
-  base_size: 1024
+  base_size: 768 #1024
 
   # 是否使用动态裁剪（针对大图）
   crop_mode: true
@@ -86,7 +86,7 @@ training:
   output_dir: "outputs"
 
   # 每个设备的 batch size
-  per_device_train_batch_size: 2
+  per_device_train_batch_size: 4
 
   # 梯度累积步数
   gradient_accumulation_steps: 4
