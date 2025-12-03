@@ -73,6 +73,28 @@ You are an OCR extractor assistant AI assigned to a company. You will only retur
 
     print("⏳ 测试推理速度（3次测试）...\n")
 
+    # 设置模型的生成配置
+    import torch
+    from transformers import GenerationConfig
+
+    base_model = model.base_model if hasattr(model, 'base_model') else model
+    if hasattr(base_model, 'model'):
+        base_model = base_model.model
+
+    # 保存并设置新配置
+    original_config = None
+    if hasattr(base_model, 'generation_config'):
+        original_config = base_model.generation_config
+        new_config = GenerationConfig.from_model_config(base_model.config)
+        new_config.max_new_tokens = max_new_tokens
+        new_config.max_length = None
+        new_config.temperature = 0.1
+        new_config.do_sample = False
+        new_config.num_beams = 1
+        new_config.repetition_penalty = 1.0
+        base_model.generation_config = new_config
+        print(f"✓ 已设置生成配置: max_new_tokens={max_new_tokens}\n")
+
     for i in range(3):
         try:
             start_time = time.time()
@@ -88,9 +110,6 @@ You are an OCR extractor assistant AI assigned to a company. You will only retur
                 save_results=False,
                 test_compress=False,
                 eval_mode=True,
-                max_new_tokens=max_new_tokens,
-                temperature=0.1,
-                do_sample=False,
             )
 
             inference_time = time.time() - start_time
@@ -108,6 +127,10 @@ You are an OCR extractor assistant AI assigned to a company. You will only retur
             inference_times.append(-1)
             token_counts.append(0)
             results.append(None)
+
+    # 恢复原始配置
+    if original_config is not None and hasattr(base_model, 'generation_config'):
+        base_model.generation_config = original_config
 
     # 清理临时目录
     if os.path.exists(temp_output_dir):

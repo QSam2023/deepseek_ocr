@@ -151,6 +151,30 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer, max_new_to
     # 构建 prompt（包含图像标记和任务指令）
     prompt = f"<image>\n{task_config['system_instruction']}\n\n{task_config['prompt']}"
 
+    # 🔥 关键优化：在调用 infer 前设置模型的生成配置
+    # 这样可以限制生成长度，防止模型生成过多 token
+    import torch
+    from transformers import GenerationConfig
+
+    # 获取实际的模型对象（可能被 PEFT 包装）
+    base_model = model.base_model if hasattr(model, 'base_model') else model
+    if hasattr(base_model, 'model'):
+        base_model = base_model.model
+
+    # 保存原始配置
+    original_config = None
+    if hasattr(base_model, 'generation_config'):
+        original_config = base_model.generation_config
+        # 创建新的生成配置
+        new_config = GenerationConfig.from_model_config(base_model.config)
+        new_config.max_new_tokens = max_new_tokens
+        new_config.max_length = None  # 使用 max_new_tokens 而不是 max_length
+        new_config.temperature = 0.1
+        new_config.do_sample = False  # 贪婪解码
+        new_config.num_beams = 1  # 不使用 beam search
+        new_config.repetition_penalty = 1.0  # 防止重复
+        base_model.generation_config = new_config
+
     # 使用 infer 方法进行推理
     # 设置 eval_mode=True 直接获取返回值
     # 注意：即使 save_results=False，也需要提供 output_path
@@ -171,11 +195,12 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer, max_new_to
             save_results=False,  # 不保存文件
             test_compress=False,
             eval_mode=True,  # 关键参数：返回结果
-            max_new_tokens=max_new_tokens,  # 🔥 关键优化：限制生成长度
-            temperature=0.1,  # 降低随机性，提高稳定性
-            do_sample=False,  # 禁用采样，使用贪婪解码（更快）
         )
     finally:
+        # 恢复原始配置
+        if original_config is not None and hasattr(base_model, 'generation_config'):
+            base_model.generation_config = original_config
+
         # 清理临时目录
         if os.path.exists(temp_output_dir):
             shutil.rmtree(temp_output_dir, ignore_errors=True)
