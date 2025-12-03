@@ -1,0 +1,167 @@
+# DeepSeek OCR 优化训练配置文件 - 针对 A100 40GB GPU
+# 优化目标：提升GPU利用率和训练速度
+
+# 数据配置
+data:
+  # 数据根目录
+  data_root: "ocr_data"
+
+  # 划分后的数据目录（如果使用现有数据）
+  split_data_dir: "ocr_data/splited_data"
+
+  # 是否使用已存在的划分数据（True: 使用已有数据，False: 重新划分）
+  use_existing_split: false
+
+  # 数据类型选择: 'all', 'table', 'stamp'
+  data_type: "all"
+
+  # 数据划分参数（当 use_existing_split=false 时生效）
+  train_ratio: 0.8
+  split_seed: 42
+
+# 模型配置
+model:
+  # 本地模型路径
+  model_path: "./deepseek_ocr"
+
+  # 是否使用 4bit 量化 (建议 A100 使用 False 以获得更好性能)
+  load_in_4bit: false
+
+  # 梯度检查点：使用 unsloth 优化版本
+  use_gradient_checkpointing: "unsloth"
+
+  # 强制编译以获得最佳性能
+  unsloth_force_compile: true
+
+  # LoRA 配置
+  lora:
+    # LoRA rank - 可以适当提高以提升模型容量
+    r: 32
+
+    # LoRA alpha（推荐 alpha == r）
+    lora_alpha: 32
+
+    # LoRA dropout
+    lora_dropout: 0.05
+
+    # bias 类型
+    bias: "none"
+
+    # 随机种子
+    random_state: 3407
+
+    # 使用 rsLoRA 提升训练稳定性
+    use_rslora: true
+
+    # 目标模块
+    target_modules:
+      - "q_proj"
+      - "k_proj"
+      - "v_proj"
+      - "o_proj"
+      - "gate_proj"
+      - "up_proj"
+      - "down_proj"
+
+# 数据处理配置
+data_processing:
+  # 图像尺寸（用于图像 patch）
+  image_size: 640
+
+  # 基础尺寸（用于全局视图）
+  base_size: 1024
+
+  # 是否使用动态裁剪（针对大图）
+  crop_mode: true
+
+  # 是否只训练回复部分（mask 用户 prompt）
+  train_on_responses_only: true
+
+# 训练配置 - 针对 A100 40GB 优化
+training:
+  # 输出目录
+  output_dir: "outputs"
+
+  # 🚀 优化：增加 batch size 以充分利用 GPU 内存
+  # A100 40GB 可以支持更大的 batch size
+  per_device_train_batch_size: 8
+
+  # 🚀 优化：减少梯度累积步数（因为 batch size 增大了）
+  # 有效 batch size = per_device_train_batch_size * gradient_accumulation_steps
+  gradient_accumulation_steps: 2
+
+  # 预热步数
+  warmup_steps: 10
+
+  # 最大训练步数
+  max_steps: 60
+
+  # 训练轮数（如果设置此项，max_steps 会被忽略）
+  # num_train_epochs: 1
+
+  # 学习率 - 适当提高以加快收敛
+  learning_rate: 3e-4
+
+  # 日志记录步数
+  logging_steps: 1
+
+  # 🚀 优化：使用 adamw_8bit 节省内存，或使用 adamw_torch_fused 获得最佳性能
+  optim: "adamw_torch_fused"
+
+  # 权重衰减
+  weight_decay: 0.01
+
+  # 学习率调度器类型 - cosine 通常表现更好
+  lr_scheduler_type: "cosine"
+
+  # 随机种子
+  seed: 3407
+
+  # 🚀 优化：大幅增加数据加载器工作线程数
+  # 建议设置为 CPU 核心数的 1/4 到 1/2
+  dataloader_num_workers: 8
+
+  # 🚀 优化：启用数据预取以减少 I/O 等待
+  # 每个 worker 预取的 batch 数量
+  dataloader_prefetch_factor: 4
+
+  # 🚀 优化：启用 pin_memory 加速 CPU 到 GPU 数据传输
+  dataloader_pin_memory: true
+
+  # 🚀 优化：启用持久化 workers，避免重复创建进程
+  dataloader_persistent_workers: true
+
+  # 🚀 优化：使用更高效的保存策略
+  save_strategy: "steps"
+  save_steps: 100
+  save_total_limit: 2
+
+  # 🚀 优化：启用梯度裁剪防止梯度爆炸
+  max_grad_norm: 1.0
+
+  # 报告工具（可选：tensorboard, wandb）
+  report_to: "none"
+
+  # 🚀 优化：设置最佳 dtype 策略
+  # A100 原生支持 bf16，性能最佳
+  bf16: true
+  fp16: false
+
+  # 🚀 优化：启用 TF32 以加速矩阵运算（A100 支持）
+  tf32: true
+
+  # 🚀 优化：启用编译优化（PyTorch 2.0+）
+  # torch_compile: true
+  # torch_compile_backend: "inductor"
+  # torch_compile_mode: "default"
+
+# 模型保存配置
+saving:
+  # LoRA 模型保存路径
+  lora_model_path: "lora_model"
+
+  # 是否保存合并后的完整模型
+  save_merged_model: false
+
+  # 合并后的模型保存路径
+  merged_model_path: "merged_model"

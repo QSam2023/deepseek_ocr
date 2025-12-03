@@ -239,6 +239,13 @@ def create_training_args(config: Dict[str, Any]) -> TrainingArguments:
     print(f"  gradient_accumulation_steps: {train_config['gradient_accumulation_steps']}")
     print(f"  learning_rate: {train_config['learning_rate']}")
 
+    # 计算有效 batch size
+    effective_batch_size = (
+        train_config['per_device_train_batch_size'] *
+        train_config['gradient_accumulation_steps']
+    )
+    print(f"  有效 batch size: {effective_batch_size}")
+
     # 根据配置决定使用 max_steps 还是 num_train_epochs
     # 确保所有数值参数都是正确的类型
     training_args_dict = {
@@ -257,10 +264,51 @@ def create_training_args(config: Dict[str, Any]) -> TrainingArguments:
         "save_steps": int(train_config['save_steps']),
         "save_total_limit": int(train_config['save_total_limit']),
         "report_to": str(train_config['report_to']),
-        "fp16": not is_bf16_supported(),
-        "bf16": is_bf16_supported(),
         "remove_unused_columns": False,  # 视觉微调必须设置
     }
+
+    # 🚀 优化：混合精度训练配置
+    # 优先使用配置文件中的设置，否则自动检测
+    if 'bf16' in train_config:
+        training_args_dict['bf16'] = bool(train_config['bf16'])
+        print(f"  bf16 (配置文件): {train_config['bf16']}")
+    else:
+        training_args_dict['bf16'] = is_bf16_supported()
+        print(f"  bf16 (自动检测): {is_bf16_supported()}")
+
+    if 'fp16' in train_config:
+        training_args_dict['fp16'] = bool(train_config['fp16'])
+        print(f"  fp16 (配置文件): {train_config['fp16']}")
+    else:
+        training_args_dict['fp16'] = not is_bf16_supported()
+        print(f"  fp16 (自动检测): {not is_bf16_supported()}")
+
+    # 🚀 优化：TF32 加速（A100 支持）
+    if 'tf32' in train_config:
+        training_args_dict['tf32'] = bool(train_config['tf32'])
+        print(f"  tf32: {train_config['tf32']}")
+
+    # 🚀 优化：DataLoader 优化参数
+    if 'dataloader_prefetch_factor' in train_config:
+        # prefetch_factor 只在 num_workers > 0 时有效
+        if train_config['dataloader_num_workers'] > 0:
+            training_args_dict['dataloader_prefetch_factor'] = int(train_config['dataloader_prefetch_factor'])
+            print(f"  dataloader_prefetch_factor: {train_config['dataloader_prefetch_factor']}")
+
+    if 'dataloader_pin_memory' in train_config:
+        training_args_dict['dataloader_pin_memory'] = bool(train_config['dataloader_pin_memory'])
+        print(f"  dataloader_pin_memory: {train_config['dataloader_pin_memory']}")
+
+    if 'dataloader_persistent_workers' in train_config:
+        # persistent_workers 只在 num_workers > 0 时有效
+        if train_config['dataloader_num_workers'] > 0:
+            training_args_dict['dataloader_persistent_workers'] = bool(train_config['dataloader_persistent_workers'])
+            print(f"  dataloader_persistent_workers: {train_config['dataloader_persistent_workers']}")
+
+    # 🚀 优化：梯度裁剪
+    if 'max_grad_norm' in train_config:
+        training_args_dict['max_grad_norm'] = float(train_config['max_grad_norm'])
+        print(f"  max_grad_norm: {train_config['max_grad_norm']}")
 
     # 添加 max_steps 或 num_train_epochs
     if 'num_train_epochs' in train_config and train_config['num_train_epochs'] is not None:
