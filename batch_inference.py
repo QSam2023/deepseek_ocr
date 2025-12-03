@@ -132,7 +132,127 @@ def load_local_model(model_path: str, base_model_path: str = None) -> Tuple:
     return model, tokenizer
 
 
-def call_local_model(img_path: str, task_type: str, model, tokenizer, max_new_tokens: int = 2048) -> Dict:
+def _infer_with_cache(
+    model,
+    tokenizer,
+    prompt: str,
+    preprocessed_path: str,
+    max_new_tokens: int = 2048
+) -> str:
+    """
+    使用预处理缓存进行推理（绕过 model.infer，直接调用 generate）
+
+    Args:
+        model: 模型
+        tokenizer: Tokenizer
+        prompt: 提示文本
+        preprocessed_path: 预处理缓存路径
+        max_new_tokens: 最大生成token数
+
+    Returns:
+        生成的文本
+    """
+    import torch
+    from deepseek_ocr.modeling_deepseekocr import text_encode
+
+    # 1. 加载预处理缓存
+    if not os.path.exists(preprocessed_path):
+        raise FileNotFoundError(f"缓存文件不存在: {preprocessed_path}")
+
+    cached_data = torch.load(preprocessed_path, weights_only=False)
+
+    # 提取图像数据
+    images_ori = cached_data['images_ori']
+    images_crop = cached_data['images_crop']
+    images_spatial_crop = cached_data['images_spatial_crop']
+    tokenized_image = cached_data['tokenized_image']
+
+    # 2. 处理文本 prompt
+    # 将 <image> 替换为实际的 image tokens
+    text_parts = prompt.split('<image>')
+
+    # 构建完整的 token 序列
+    input_ids = []
+
+    # 添加 BOS token
+    if hasattr(tokenizer, 'bos_token_id') and tokenizer.bos_token_id is not None:
+        input_ids.append(tokenizer.bos_token_id)
+
+    # 添加第一部分文本（<image> 之前）
+    if text_parts[0]:
+        text_tokens = text_encode(tokenizer, text_parts[0], bos=False, eos=False)
+        input_ids.extend(text_tokens)
+
+    # 添加 image tokens
+    input_ids.extend(tokenized_image)
+
+    # 添加第二部分文本（<image> 之后）
+    if len(text_parts) > 1 and text_parts[1]:
+        text_tokens = text_encode(tokenizer, text_parts[1], bos=False, eos=False)
+        input_ids.extend(text_tokens)
+
+    # 转换为 tensor
+    input_ids = torch.tensor([input_ids], dtype=torch.long)
+
+    # 创建 attention mask
+    attention_mask = torch.ones_like(input_ids)
+
+    # 创建 images_seq_mask (标记哪些 token 是 image tokens)
+    images_seq_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+    # 计算 image tokens 的起始和结束位置
+    bos_offset = 1 if hasattr(tokenizer, 'bos_token_id') and tokenizer.bos_token_id is not None else 0
+    text_before_image_len = len(text_encode(tokenizer, text_parts[0], bos=False, eos=False)) if text_parts[0] else 0
+    img_start = bos_offset + text_before_image_len
+    img_end = img_start + len(tokenized_image)
+    images_seq_mask[0, img_start:img_end] = True
+
+    # 3. 准备图像数据
+    # 将图像数据包装为 batch 格式
+    images_batch = [(images_crop.unsqueeze(0), images_ori.unsqueeze(0))]
+
+    # 4. 移动到设备
+    device = next(model.parameters()).device
+    input_ids = input_ids.to(device)
+    attention_mask = attention_mask.to(device)
+    images_seq_mask = images_seq_mask.to(device)
+    images_spatial_crop = images_spatial_crop.unsqueeze(0).to(device)
+
+    # 将图像数据移动到设备
+    images_batch = [
+        (crop.to(device), ori.to(device))
+        for crop, ori in images_batch
+    ]
+
+    # 5. 调用 generate
+    with torch.no_grad():
+        outputs = model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            images=images_batch,
+            images_seq_mask=images_seq_mask,
+            images_spatial_crop=images_spatial_crop,
+            max_new_tokens=max_new_tokens,
+            use_cache=True,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+
+    # 6. 解码输出
+    # 只解码生成的新 tokens（跳过输入部分）
+    generated_ids = outputs[0, input_ids.shape[1]:]
+    result_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+    return result_text
+
+
+def call_local_model(
+    img_path: str,
+    task_type: str,
+    model,
+    tokenizer,
+    max_new_tokens: int = 2048,
+    preprocessed_path: str = None
+) -> Dict:
     """
     调用本地 Unsloth 模型进行单张图片推理
 
@@ -142,6 +262,7 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer, max_new_to
         model: Unsloth model
         tokenizer: Tokenizer
         max_new_tokens: 最大生成token数（默认2048，防止生成过长）
+        preprocessed_path: 预处理缓存路径（可选，提供时使用缓存加速）
 
     Returns:
         解析后的JSON结果
@@ -161,6 +282,12 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer, max_new_to
     if hasattr(base_model, 'model'):
         base_model = base_model.model
 
+    # 修复 tokenizer 的 pad_token（避免 attention_mask 警告）
+    if tokenizer.pad_token is None or tokenizer.pad_token == tokenizer.eos_token:
+        tokenizer.pad_token = tokenizer.unk_token if tokenizer.unk_token else tokenizer.eos_token
+        if hasattr(tokenizer, 'pad_token_id'):
+            tokenizer.pad_token_id = tokenizer.unk_token_id if tokenizer.unk_token_id else tokenizer.eos_token_id
+
     # 保存原始配置
     original_config = None
     if hasattr(base_model, 'generation_config'):
@@ -175,35 +302,53 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer, max_new_to
         new_config.repetition_penalty = 1.0  # 防止重复
         base_model.generation_config = new_config
 
-    # 使用 infer 方法进行推理
-    # 设置 eval_mode=True 直接获取返回值
-    # 注意：即使 save_results=False，也需要提供 output_path
-    import tempfile
-    import shutil
+    # 🚀 优化：尝试从缓存加载预处理数据
+    use_cache = False
+    if preprocessed_path and os.path.exists(preprocessed_path):
+        try:
+            result_text = _infer_with_cache(
+                model=model,
+                tokenizer=tokenizer,
+                prompt=prompt,
+                preprocessed_path=preprocessed_path,
+                max_new_tokens=max_new_tokens
+            )
+            use_cache = True
+        except Exception as e:
+            print(f"⚠️  缓存加载失败，回退到实时处理: {e}")
+            use_cache = False
 
-    temp_output_dir = tempfile.mkdtemp(prefix='deepseek_ocr_')
+    # 如果没有缓存或缓存加载失败，使用原有的 infer 方法
+    if not use_cache:
+        # 使用 infer 方法进行推理
+        # 设置 eval_mode=True 直接获取返回值
+        # 注意：即使 save_results=False，也需要提供 output_path
+        import tempfile
+        import shutil
 
-    try:
-        result_text = model.infer(
-            tokenizer,
-            prompt=prompt,
-            image_file=img_path,
-            output_path=temp_output_dir,  # 必须提供，即使不保存
-            base_size=1024,
-            image_size=640,
-            crop_mode=True,
-            save_results=False,  # 不保存文件
-            test_compress=False,
-            eval_mode=True,  # 关键参数：返回结果
-        )
-    finally:
-        # 恢复原始配置
-        if original_config is not None and hasattr(base_model, 'generation_config'):
-            base_model.generation_config = original_config
+        temp_output_dir = tempfile.mkdtemp(prefix='deepseek_ocr_')
 
-        # 清理临时目录
-        if os.path.exists(temp_output_dir):
-            shutil.rmtree(temp_output_dir, ignore_errors=True)
+        try:
+            result_text = model.infer(
+                tokenizer,
+                prompt=prompt,
+                image_file=img_path,
+                output_path=temp_output_dir,  # 必须提供，即使不保存
+                base_size=1024,
+                image_size=640,
+                crop_mode=True,
+                save_results=False,  # 不保存文件
+                test_compress=False,
+                eval_mode=True,  # 关键参数：返回结果
+            )
+        finally:
+            # 清理临时目录
+            if os.path.exists(temp_output_dir):
+                shutil.rmtree(temp_output_dir, ignore_errors=True)
+
+    # 恢复原始配置
+    if original_config is not None and hasattr(base_model, 'generation_config'):
+        base_model.generation_config = original_config
 
     # 检查返回结果
     if result_text is None:
@@ -394,7 +539,11 @@ def batch_inference(task_type: str, split_data_dir: str, output_dir: str,
             if inference_mode == 'cloud':
                 pred_result = call_api(img_path, task_type, client)
             else:  # local mode
-                pred_result = call_local_model(img_path, task_type, model, tokenizer, max_new_tokens)
+                # 获取预处理缓存路径（如果有）
+                preprocessed_path = item.get('preprocessed_path', None)
+                pred_result = call_local_model(
+                    img_path, task_type, model, tokenizer, max_new_tokens, preprocessed_path
+                )
 
             # 构建结果条目（与评估脚本期望的格式一致）
             if task_type == "stamp_cls":

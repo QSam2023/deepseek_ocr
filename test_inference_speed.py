@@ -81,6 +81,13 @@ You are an OCR extractor assistant AI assigned to a company. You will only retur
     if hasattr(base_model, 'model'):
         base_model = base_model.model
 
+    # 修复 tokenizer 的 pad_token（避免 attention_mask 警告）
+    if tokenizer.pad_token is None or tokenizer.pad_token == tokenizer.eos_token:
+        tokenizer.pad_token = tokenizer.unk_token if tokenizer.unk_token else tokenizer.eos_token
+        if hasattr(tokenizer, 'pad_token_id'):
+            tokenizer.pad_token_id = tokenizer.unk_token_id if tokenizer.unk_token_id else tokenizer.eos_token_id
+        print("✓ 已修复 tokenizer pad_token")
+
     # 保存并设置新配置
     original_config = None
     if hasattr(base_model, 'generation_config'):

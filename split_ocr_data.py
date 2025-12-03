@@ -1,13 +1,14 @@
 """
 OCR 数据集划分脚本
 支持 stamp 和 table 两种数据类型的 train/test 划分
+可选：在划分时预处理图片并缓存，加速训练
 """
 
 import os
 import json
 import random
 import argparse
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 
 # 任务类型配置
@@ -286,6 +287,64 @@ def split_data_by_images(data_list: List[Dict], train_ratio: float, seed: int) -
     return train_data, test_data
 
 
+def preprocess_and_cache_images(
+    data: List[Dict],
+    image_size: int = 640,
+    base_size: int = 1024,
+    crop_mode: bool = True,
+    cache_dir: str = "ocr_data/preprocessed_cache",
+    verbose: bool = True
+) -> List[Dict]:
+    """
+    预处理图片并更新数据列表
+
+    Args:
+        data: 数据列表
+        image_size: 图片尺寸
+        base_size: 基础尺寸
+        crop_mode: 是否使用裁剪模式
+        cache_dir: 缓存目录
+        verbose: 是否显示进度
+
+    Returns:
+        更新后的数据列表（添加了 preprocessed_path 字段）
+    """
+    from image_preprocessor import batch_preprocess_images
+
+    if not data:
+        return data
+
+    print(f"  开始预处理 {len(data)} 张图片...")
+
+    # 提取图片路径和任务类型
+    image_paths = [item['image_path'] for item in data]
+    task_types = [item['task_type'] for item in data]
+
+    # 批量预处理
+    cache_paths = batch_preprocess_images(
+        image_paths=image_paths,
+        task_types=task_types,
+        image_size=image_size,
+        base_size=base_size,
+        crop_mode=crop_mode,
+        cache_dir=cache_dir,
+        verbose=verbose
+    )
+
+    # 更新数据列表
+    updated_data = []
+    success_count = 0
+    for item, cache_path in zip(data, cache_paths):
+        if cache_path:
+            item['preprocessed_path'] = cache_path
+            success_count += 1
+        updated_data.append(item)
+
+    print(f"  ✓ 预处理完成: {success_count}/{len(data)} 张图片成功缓存")
+
+    return updated_data
+
+
 def save_split_data(data: List[Dict], output_file: str):
     """保存划分后的数据"""
     os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else '.', exist_ok=True)
@@ -359,6 +418,34 @@ def main():
         default=42,
         help='随机种子 (默认: 42)'
     )
+    parser.add_argument(
+        '--preprocess',
+        action='store_true',
+        help='预处理并缓存图片（加速训练）'
+    )
+    parser.add_argument(
+        '--image_size',
+        type=int,
+        default=640,
+        help='图片裁剪尺寸 (默认: 640)'
+    )
+    parser.add_argument(
+        '--base_size',
+        type=int,
+        default=1024,
+        help='基础视图尺寸 (默认: 1024)'
+    )
+    parser.add_argument(
+        '--no_crop',
+        action='store_true',
+        help='禁用图片裁剪模式'
+    )
+    parser.add_argument(
+        '--cache_dir',
+        type=str,
+        default='ocr_data/preprocessed_cache',
+        help='预处理缓存目录 (默认: ocr_data/preprocessed_cache)'
+    )
 
     args = parser.parse_args()
 
@@ -370,6 +457,12 @@ def main():
     print(f"输出目录: {args.output_dir}")
     print(f"训练集比例: {args.train_ratio}")
     print(f"随机种子: {args.seed}")
+    if args.preprocess:
+        print(f"预处理模式: 启用")
+        print(f"  - 图片尺寸: {args.image_size}")
+        print(f"  - 基础尺寸: {args.base_size}")
+        print(f"  - 裁剪模式: {'禁用' if args.no_crop else '启用'}")
+        print(f"  - 缓存目录: {args.cache_dir}")
     print("=" * 80)
 
     if args.data_type == 'stamp':
@@ -405,7 +498,33 @@ def main():
         print(f"    - 训练集: {len(stamp_cls_train)} 条")
         print(f"    - 测试集: {len(stamp_cls_test)} 条")
 
-        print(f"\n[3/3] 保存数据...")
+        # 预处理图片（如果启用）
+        if args.preprocess:
+            print(f"\n[3/4] 预处理图片...")
+            crop_mode = not args.no_crop
+
+            print(f"  预处理 stamp_ocr 训练集...")
+            stamp_ocr_train = preprocess_and_cache_images(
+                stamp_ocr_train, args.image_size, args.base_size, crop_mode, args.cache_dir
+            )
+
+            print(f"  预处理 stamp_ocr 测试集...")
+            stamp_ocr_test = preprocess_and_cache_images(
+                stamp_ocr_test, args.image_size, args.base_size, crop_mode, args.cache_dir
+            )
+
+            print(f"  预处理 stamp_cls 训练集...")
+            stamp_cls_train = preprocess_and_cache_images(
+                stamp_cls_train, args.image_size, args.base_size, crop_mode, args.cache_dir
+            )
+
+            print(f"  预处理 stamp_cls 测试集...")
+            stamp_cls_test = preprocess_and_cache_images(
+                stamp_cls_test, args.image_size, args.base_size, crop_mode, args.cache_dir
+            )
+
+        step_num = "4/4" if args.preprocess else "3/3"
+        print(f"\n[{step_num}] 保存数据...")
         save_split_data(stamp_ocr_train, os.path.join(args.output_dir, 'stamp_ocr_train.json'))
         save_split_data(stamp_ocr_test, os.path.join(args.output_dir, 'stamp_ocr_test.json'))
         save_split_data(stamp_cls_train, os.path.join(args.output_dir, 'stamp_cls_train.json'))
@@ -431,7 +550,23 @@ def main():
         print(f"    - 训练集: {len(train_data)} 条")
         print(f"    - 测试集: {len(test_data)} 条")
 
-        print(f"\n[3/3] 保存数据...")
+        # 预处理图片（如果启用）
+        if args.preprocess:
+            print(f"\n[3/4] 预处理图片...")
+            crop_mode = not args.no_crop
+
+            print(f"  预处理 table_ocr 训练集...")
+            train_data = preprocess_and_cache_images(
+                train_data, args.image_size, args.base_size, crop_mode, args.cache_dir
+            )
+
+            print(f"  预处理 table_ocr 测试集...")
+            test_data = preprocess_and_cache_images(
+                test_data, args.image_size, args.base_size, crop_mode, args.cache_dir
+            )
+
+        step_num = "4/4" if args.preprocess else "3/3"
+        print(f"\n[{step_num}] 保存数据...")
         save_split_data(train_data, os.path.join(args.output_dir, 'table_ocr_train.json'))
         save_split_data(test_data, os.path.join(args.output_dir, 'table_ocr_test.json'))
 
