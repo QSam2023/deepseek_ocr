@@ -134,11 +134,16 @@ def convert_to_conversation(sample: Dict) -> Dict:
     prompt = sample.get('prompt', '')
     result = sample.get('result', {})
 
-    # 将 result 转换为 JSON 字符串
+    # 统一将 result 转换为 JSON 格式
+    # 如果是 string，包装成 {"result": "..."}
     if isinstance(result, dict):
-        result_text = json.dumps(result, ensure_ascii=False, indent=2)
+        result_obj = result
     else:
-        result_text = str(result)
+        result_obj = {"result": str(result)}
+
+    # 生成 JSON 字符串并用 markdown 代码块包裹
+    result_json = json.dumps(result_obj, ensure_ascii=False, indent=2)
+    result_text = f"```json\n{result_json}\n```"
 
     conversation = [
         {

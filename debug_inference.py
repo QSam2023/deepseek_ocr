@@ -8,6 +8,8 @@ import os
 import sys
 import json
 import argparse
+import random
+from typing import Dict, Any
 from pathlib import Path
 from PIL import Image
 
@@ -270,6 +272,31 @@ def diff_json(pred, label, path=""):
     return diffs
 
 
+def build_label_info(sample: Dict, source_file: str = None):
+    """根据样本构建 label 信息"""
+    label = sample.get('result')
+    if label is None:
+        return None
+
+    if isinstance(label, dict):
+        parsed = label
+        raw_text = json.dumps(label, ensure_ascii=False, indent=2)
+    else:
+        raw_text = str(label)
+        try:
+            parsed = json.loads(raw_text)
+        except Exception:
+            parsed = None
+
+    return {
+        "raw_text": raw_text,
+        "parsed": parsed,
+        "task_type": sample.get('task_type'),
+        "prompt": sample.get('prompt'),
+        "source_file": source_file,
+    }
+
+
 def load_label_info(label_file: str, image_path: str):
     """从标注文件中读取指定图片的标注"""
     if not os.path.exists(label_file):
@@ -298,29 +325,35 @@ def load_label_info(label_file: str, image_path: str):
             continue
         sample_abs = os.path.abspath(os.path.normpath(sample_path))
         if sample_abs == target_abs:
-            label = item.get('result')
-            if label is None:
-                continue
-            if isinstance(label, dict):
-                parsed = label
-                raw_text = json.dumps(label, ensure_ascii=False, indent=2)
-            else:
-                raw_text = str(label)
-                try:
-                    parsed = json.loads(raw_text)
-                except Exception:
-                    parsed = None
-            print(f"\n✓ 找到标注信息 (文件: {label_file})")
-            return {
-                "raw_text": raw_text,
-                "parsed": parsed,
-                "task_type": item.get('task_type'),
-                "prompt": item.get('prompt'),
-                "source_file": label_file,
-            }
+            label_info = build_label_info(item, label_file)
+            if label_info:
+                print(f"\n✓ 找到标注信息 (文件: {label_file})")
+            return label_info
 
     print(f"⚠️  警告: 标注文件中未找到图片 {image_path}")
     return None
+
+
+def pick_random_train_sample(task_type: str, split_data_dir: str):
+    """从指定任务的训练集中随机选择一个样本"""
+    train_file = os.path.join(split_data_dir, f"{task_type}_train.json")
+    if not os.path.exists(train_file):
+        raise FileNotFoundError(f"训练集文件不存在: {train_file}")
+
+    with open(train_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    if not data:
+        raise ValueError(f"训练集为空: {train_file}")
+
+    sample = random.choice(data)
+    print("\n✓ 已随机选取训练样本")
+    print(f"  - 任务类型: {task_type}")
+    print(f"  - 源文件: {train_file}")
+    print(f"  - 图片: {sample.get('image_path')}")
+
+    label_info = build_label_info(sample, train_file)
+    return sample, label_info, train_file
 
 
 def test_inference(model, tokenizer, image_path: str, prompt: str = None, label_info: dict = None):
@@ -518,12 +551,20 @@ def main():
                         help='模型路径（可以是完整模型或 LoRA adapter）')
     parser.add_argument('--base_model_path', type=str, default=None,
                         help='基础模型路径（当 model_path 是 LoRA adapter 时需要）')
-    parser.add_argument('--image_path', type=str, required=True,
-                        help='测试图片路径')
+    parser.add_argument('--image_path', type=str,
+                        help='测试图片路径（当未选择随机样本时需要）')
     parser.add_argument('--prompt', type=str, default=None,
                         help='自定义 prompt（默认使用 Free OCR）')
     parser.add_argument('--label_file', type=str, default=None,
                         help='包含标注数据的 JSON 文件，用于对比模型输出')
+    parser.add_argument('--task_type', type=str,
+                        choices=['table_ocr', 'stamp_ocr', 'stamp_cls'],
+                        help='任务类型（随机抽样或用于提示信息）')
+    parser.add_argument('--split_data_dir', type=str,
+                        default='ocr_data/splited_data',
+                        help='数据划分目录（默认: ocr_data/splited_data）')
+    parser.add_argument('--random_train_sample', action='store_true',
+                        help='从指定任务的训练集中随机选择一个样本进行测试')
 
     args = parser.parse_args()
 
@@ -534,20 +575,52 @@ def main():
     print(f"  模型路径: {args.model_path}")
     if args.base_model_path:
         print(f"  基础模型路径: {args.base_model_path}")
-    print(f"  图片路径: {args.image_path}")
+    print(f"  图片路径: {args.image_path or '未指定'}")
     if args.prompt:
         print(f"  自定义 prompt: {args.prompt}")
+    print(f"  使用随机训练样本: {'是' if args.random_train_sample else '否'}")
+    if args.random_train_sample:
+        print(f"  任务类型: {args.task_type or '未指定'}")
+        print(f"  数据目录: {args.split_data_dir}")
+    if args.label_file:
+        print(f"  标注文件: {args.label_file}")
 
     try:
         # 加载模型
         model, tokenizer = load_model(args.model_path, args.base_model_path)
 
+        selected_image_path = args.image_path
         label_info = None
-        if args.label_file:
-            label_info = load_label_info(args.label_file, args.image_path)
+        source_prompt = args.prompt
+
+        if args.random_train_sample:
+            if not args.task_type:
+                raise ValueError("使用随机训练样本时必须指定 --task_type")
+
+            sample, label_info, train_file = pick_random_train_sample(
+                args.task_type, args.split_data_dir
+            )
+            selected_image_path = sample.get('image_path')
+            if not selected_image_path:
+                raise ValueError("随机样本缺少 image_path 字段")
+
+            if source_prompt is None and sample.get('prompt'):
+                source_prompt = sample['prompt']
+                print("✓ 使用样本中的 prompt 作为推理 prompt")
+
+        else:
+            if not selected_image_path:
+                raise ValueError("请提供 --image_path 或使用 --random_train_sample")
+
+        if label_info is None and args.label_file:
+            label_info = load_label_info(args.label_file, selected_image_path)
+
+        print(f"\n将使用图片: {selected_image_path}")
+        if source_prompt:
+            print("将使用自定义/样本 prompt")
 
         # 测试推理
-        result = test_inference(model, tokenizer, args.image_path, args.prompt, label_info)
+        result = test_inference(model, tokenizer, selected_image_path, source_prompt, label_info)
 
         # 总结
         print_section("总结")
