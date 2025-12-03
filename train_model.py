@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import List, Dict, Any
 from PIL import Image
 
-from transformers import AutoModel, Trainer, TrainingArguments
 from unsloth import FastVisionModel, is_bf16_supported
+from transformers import AutoModel, Trainer, TrainingArguments
 from data_collator import DeepSeekOCRDataCollator
 
 
