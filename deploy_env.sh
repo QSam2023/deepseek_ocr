@@ -42,7 +42,7 @@ source ocr/bin/activate
 echo "Installing dependencies..."
 uv pip install --upgrade pip
 
-uv pip install torch=="${TORCH_VERSION}" torchvision=="${TORCHVISION_VERSION}" torchaudio=="${TORCHAUDIO_VERSION}" --index-url https://download.pytorch.org/whl/cu128
+uv pip install torch=="${TORCH_VERSION}" torchvision=="${TORCHVISION_VERSION}" torchaudio=="${TORCHAUDIO_VERSION}"
 
 # Optional: vLLM (commented out as in original)
 # uv pip install -U vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
