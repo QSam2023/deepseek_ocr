@@ -132,7 +132,7 @@ def load_local_model(model_path: str, base_model_path: str = None) -> Tuple:
     return model, tokenizer
 
 
-def call_local_model(img_path: str, task_type: str, model, tokenizer) -> Dict:
+def call_local_model(img_path: str, task_type: str, model, tokenizer, max_new_tokens: int = 2048) -> Dict:
     """
     调用本地 Unsloth 模型进行单张图片推理
 
@@ -141,6 +141,7 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer) -> Dict:
         task_type: 任务类型
         model: Unsloth model
         tokenizer: Tokenizer
+        max_new_tokens: 最大生成token数（默认2048，防止生成过长）
 
     Returns:
         解析后的JSON结果
@@ -169,7 +170,10 @@ def call_local_model(img_path: str, task_type: str, model, tokenizer) -> Dict:
             crop_mode=True,
             save_results=False,  # 不保存文件
             test_compress=False,
-            eval_mode=True  # 关键参数：返回结果
+            eval_mode=True,  # 关键参数：返回结果
+            max_new_tokens=max_new_tokens,  # 🔥 关键优化：限制生成长度
+            temperature=0.1,  # 降低随机性，提高稳定性
+            do_sample=False,  # 禁用采样，使用贪婪解码（更快）
         )
     finally:
         # 清理临时目录
@@ -272,7 +276,7 @@ def call_api(img_path: str, task_type: str, client) -> Dict:
 def batch_inference(task_type: str, split_data_dir: str, output_dir: str,
                    resume: bool = True, inference_mode: str = 'cloud',
                    model_path: Optional[str] = None, base_model_path: Optional[str] = None,
-                   local_model_cache: Optional[Tuple] = None):
+                   local_model_cache: Optional[Tuple] = None, max_new_tokens: int = 2048):
     """
     对特定任务类型的测试集进行批量推理
 
@@ -285,6 +289,7 @@ def batch_inference(task_type: str, split_data_dir: str, output_dir: str,
         model_path: 本地模型路径（仅 local 模式需要）
         base_model_path: 基础模型路径（当 model_path 是 LoRA adapter 时需要）
         local_model_cache: 已加载的本地模型缓存 (model, tokenizer)
+        max_new_tokens: 最大生成token数（默认2048）
 
     Returns:
         本地模型缓存 (model, tokenizer) 如果是 local 模式，否则返回 None
@@ -364,7 +369,7 @@ def batch_inference(task_type: str, split_data_dir: str, output_dir: str,
             if inference_mode == 'cloud':
                 pred_result = call_api(img_path, task_type, client)
             else:  # local mode
-                pred_result = call_local_model(img_path, task_type, model, tokenizer)
+                pred_result = call_local_model(img_path, task_type, model, tokenizer, max_new_tokens)
 
             # 构建结果条目（与评估脚本期望的格式一致）
             if task_type == "stamp_cls":
@@ -482,6 +487,12 @@ def main():
         action='store_true',
         help='不使用断点续传，从头开始处理'
     )
+    parser.add_argument(
+        '--max_new_tokens',
+        type=int,
+        default=2048,
+        help='最大生成token数，防止生成过长文本 (默认: 2048，表格复杂可增大到4096)'
+    )
 
     args = parser.parse_args()
 
@@ -548,7 +559,8 @@ def main():
                 inference_mode=args.inference_mode,
                 model_path=args.model_path if args.inference_mode == 'local' else None,
                 base_model_path=args.base_model_path if args.inference_mode == 'local' else None,
-                local_model_cache=local_model_cache
+                local_model_cache=local_model_cache,
+                max_new_tokens=args.max_new_tokens
             )
         except Exception as e:
             print(f"✗ 任务 {task_type} 处理失败: {e}")

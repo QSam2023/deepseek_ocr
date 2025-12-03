@@ -1,0 +1,75 @@
+# 极简训练配置 - 用于测试和找出真正的性能瓶颈
+# 关键优化：禁用crop_mode，减小图像尺寸，简化处理流程
+
+data:
+  data_root: "ocr_data"
+  split_data_dir: "ocr_data/splited_data"
+  use_existing_split: true
+  data_type: "table"  # 只测试一个任务，加快测试
+  train_ratio: 0.8
+  split_seed: 42
+
+model:
+  model_path: "./deepseek_ocr"
+  load_in_4bit: false
+  use_gradient_checkpointing: false  # 禁用以测试纯计算速度
+  unsloth_force_compile: true
+
+  lora:
+    r: 8  # 最小 rank 用于测试
+    lora_alpha: 8
+    lora_dropout: 0
+    bias: "none"
+    random_state: 3407
+    use_rslora: false
+    # 只训练 QV，减少计算量
+    target_modules:
+      - "q_proj"
+      - "v_proj"
+
+data_processing:
+  # 🔥 关键优化：减小图像尺寸
+  image_size: 512     # 从 640 降到 512
+  base_size: 768      # 从 1024 降到 768
+
+  # 🔥 关键优化：禁用动态裁剪（可能是主要瓶颈）
+  crop_mode: false
+
+  train_on_responses_only: true
+
+training:
+  output_dir: "outputs_minimal"
+
+  # 🔥 尽可能大的 batch size
+  per_device_train_batch_size: 16
+  gradient_accumulation_steps: 1
+
+  warmup_steps: 0  # 测试时不需要
+  max_steps: 20    # 快速测试
+
+  learning_rate: 2e-4
+  logging_steps: 1
+
+  optim: "adamw_torch_fused"
+  weight_decay: 0.01
+  lr_scheduler_type: "constant"  # 简化
+  seed: 3407
+
+  # DataLoader 优化
+  dataloader_num_workers: 8
+  dataloader_prefetch_factor: 4
+  dataloader_pin_memory: true
+  dataloader_persistent_workers: true
+
+  # 不保存检查点，加快测试
+  save_strategy: "no"
+  report_to: "none"
+
+  # 混合精度
+  bf16: true
+  fp16: false
+  tf32: true
+
+saving:
+  lora_model_path: "lora_model_minimal"
+  save_merged_model: false
